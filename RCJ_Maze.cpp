@@ -14,10 +14,9 @@
 
 #include <webots/Gyro.hpp>
 #include <math.h>
-//test arjun
-//test-andrew
-//test-vivaan
-// test - brandon (yes it works)
+
+
+
 
 // All the webots classes are defined in the "webots" namespace
 using namespace webots;
@@ -27,10 +26,14 @@ using namespace std;
 enum Color { White, Black, Red, Blue, Purple, Gray, Sand, Unknown };
 enum Direction { Left, Right };
 
-
 Robot* robot = new Robot();
 int timeStep = robot->getBasicTimeStep();
 Motor* leftMotor, * rightMotor;
+
+Camera* colorSensor = robot->getCamera("colourSensor");
+Camera* upCam = robot->getCamera("cameraUp");
+GPS* gps = robot->getGPS("gps");
+Gyro* gyro = robot->getGyro("gyro");
 
 void delay(int ms)
 {
@@ -47,8 +50,6 @@ void delay(int ms)
 
 //gyro functions start
 #define PI 2*asin(1)
-
-Gyro* gyro = robot->getGyro("gyro");
 
 double angle = 0;
 
@@ -221,28 +222,77 @@ void Detec(DistanceSensor* farright) {
 	}
 }
 
+void hazard_detection()
+{
+	Mat frame_rgb(colorSensor->getHeight(), colorSensor->getWidth(), CV_8UC4, (void*)colorSensor->getImage()), frame_hsv, thresholded_img;
+	vector<vector<Point>> contours;
+	bool match_found = 0;
+	cvtColor(frame_rgb, frame_hsv, COLOR_BGR2HSV);
+	inRange(frame_hsv, Scalar(15, 127, 127), Scalar(35, 255, 255), thresholded_img); //yellow (organic peroxide)
+	findContours(thresholded_img, contours, noArray(), RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+	for (int i = 0; i < contours.size(); i++)
+	{
+		if (contourArea(contours[i]) > 400.0)
+		{
+			printf("corrosive \n");
+			match_found = 1;
+		}
+	}
+	if (match_found == 0)
+	{
+		inRange(frame_hsv, Scalar(160, 0, 0), Scalar(170, 255, 255), thresholded_img); //red (flammable gas)
+		findContours(thresholded_img, contours, noArray(), RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+		for (int i = 0; i < contours.size(); i++)
+		{
+			if (contourArea(contours[i]) > 500.0)
+			{
+				printf("flammable gas \n");
+				match_found = 1;
+			}
+		}
+	}
+	if (match_found == 0)
+	{
+		inRange(frame_hsv, Scalar(0, 0, 0), Scalar(0, 0, 0), thresholded_img); //black (corrosive)
+		findContours(thresholded_img, contours, noArray(), RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+		for (int i = 0; i < contours.size(); i++)
+		{
+			if (contourArea(contours[i]) > 400.0)
+			{
+				printf("corrosive \n");
+				match_found = 1;
+			}
+		}
+	}
+	if (match_found == 0)
+	{
+		inRange(frame_hsv, Scalar(0, 0, 200), Scalar(0, 0, 255), thresholded_img); //white/gray (poison)
+		findContours(thresholded_img, contours, noArray(), RETR_EXTERNAL, CHAIN_APPROX_SIMPLE);
+		for (int i = 0; i < contours.size(); i++)
+		{
+			if (contourArea(contours[i]) > 1000.0)
+			{
+				printf("poison \n");
+				match_found = 1;
+			}
+		}
+	}
+	imshow("thresholded", thresholded_img);
+	waitKey(1);
+}
+
 
 int main(int argc, char** argv) {
 
+	leftMotor = robot->getMotor("wheel2 motor");
+	rightMotor = robot->getMotor("wheel1 motor");
 
-
-
-	Camera* colorSensor = robot->getCamera("colourSensor");
-	Camera* Lcam = robot->getCamera("LCam");
-	Camera* Rcam = robot->getCamera("RCam");
-
-	GPS* gps = robot->getGPS("gps");
-
-	leftMotor = robot->getMotor("wheel2");
-	rightMotor = robot->getMotor("wheel1");
-
-	DistanceSensor* distance = robot->getDistanceSensor("distanceSensor");
+	DistanceSensor* distance = robot->getDistanceSensor("DistanceSensor");
 	leftMotor->setPosition(INFINITY);
 	rightMotor->setPosition(INFINITY);
 
 	colorSensor->enable(timeStep);
-	Lcam->enable(timeStep);
-	Rcam->enable(timeStep);
+	upCam->enable(timeStep);
 	distance->enable(timeStep);
 	gps->enable(timeStep);
 
@@ -254,34 +304,46 @@ int main(int argc, char** argv) {
 	straight(3, true);
 	straight(3, false);
 
+	while (timeStep != 0)
+	{
+		hazard_detection;
+	}
 
 
-	/* Testing
+	/*
 	unsigned char r, g, b;
 	Mat original;
 	while (robot->step(timeStep) != -1)
 	{
+
 		//get color values
 		const unsigned char* image = colorSensor->getImage();
 		r = colorSensor->imageGetRed(image, colorSensor->getWidth(), colorSensor->getWidth()/2, colorSensor->getHeight()/2);
 		g = colorSensor->imageGetGreen(image, colorSensor->getWidth(), colorSensor->getWidth()/2, colorSensor->getHeight()/2);
 		b = colorSensor->imageGetBlue(image, colorSensor->getWidth(), colorSensor->getWidth()/2, colorSensor->getHeight()/2);
+
 		const unsigned char* img = upCam->getImage();
 		Mat frame(upCam->getHeight(), upCam->getWidth(), CV_8UC4, (void*)upCam->getImage());
 		original = frame.clone();
+
 		Mat hsv_frame;
 		cvtColor(original, hsv_frame, COLOR_BGR2HSV);
+
 		cvtColor(frame, frame, COLOR_BGR2GRAY);
+
 		threshold(frame, frame, 20, 255, THRESH_BINARY_INV);
+
 
 		vector<vector<Point>> contours;
 		vector<Vec4i> heirarchy;
 		findContours(frame, contours, heirarchy, RETR_TREE, CHAIN_APPROX_SIMPLE);
+
 		cout << "Number of contours: " << contours.size() << endl;
 
 		vector<Rect> boundRect(contours.size());
 
 		auto redcolor = Scalar(0, 0, 255);
+
 		for (int i = 0; i < contours.size(); ++i)
 		{
 			boundRect[i] = boundingRect(contours[i]);
@@ -289,9 +351,11 @@ int main(int argc, char** argv) {
 			cout << boundRect[i].area() << endl;
 			if (boundRect[i].area() >= 270)
 			{
+
 				Mat roi(frame, boundRect[i]);
 				imshow("roi", roi);
 				cout << "Letter: " << getLetter(roi) << endl;
+
 			}
 			else
 			{
@@ -306,6 +370,7 @@ int main(int argc, char** argv) {
 		imshow("orig", original);
 		imshow("thresh", frame);
 		waitKey(1);
+
 		<< "Location-xyz: (" << gps->getValues()[0] << ", " << gps->getValues()[1] << ", " << gps->getValues()[2] << ")" << endl;
 
 	}
@@ -313,3 +378,5 @@ int main(int argc, char** argv) {
 	robot;
 	return 0;
 }
+
+
